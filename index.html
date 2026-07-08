@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>✨ 魔法のシフト読み込みくん ✨</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/opencv-apps-lab@0.0.1/opencv.js" defer></script>
+    <script src="opencv.js" type="text/javascript"></script>
     <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700&display=swap" rel="stylesheet">
@@ -154,7 +154,7 @@
 
     let isOpenCvReady = false;
 
-    // 定期的にcvオブジェクトが完成したかを直接監視する安全な方法
+    // 定期的にcvオブジェクトが完成したかを監視する安全な方法
     const checkOpenCv = setInterval(() => {
         if (typeof cv !== 'undefined' && cv.Mat) {
             isOpenCvReady = true;
@@ -165,7 +165,7 @@
         }
     }, 500);
 
-    // 15秒経ってもダメなら警告を出して強制立ち上げ
+    // 15秒経ってもダメなら警告を出す
     setTimeout(() => {
         if (!isOpenCvReady) {
             status.innerHTML = '⚠️ 起動が遅いみたい。写真を選んで動くか試してみてね！';
