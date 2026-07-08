@@ -4,17 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>✨ 魔法のシフト読み込みくん ✨</title>
-    
     <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
-
     <style>
         :root {
             --primary-color: #ff6b6b;
             --secondary-color: #feca57;
             --bg-color: #ffeffd;
         }
-
         body {
             font-family: 'M+ PLUS Rounded 1c', sans-serif;
             background: linear-gradient(135deg, #fff5f5 0%, #fff0f5 100%);
@@ -25,7 +22,6 @@
             flex-direction: column;
             align-items: center;
         }
-
         .container {
             max-width: 600px;
             width: 100%;
@@ -37,21 +33,17 @@
             text-align: center;
             box-sizing: border-box;
         }
-
         h1 {
             color: var(--primary-color);
             font-size: 2rem;
             margin-bottom: 10px;
             text-shadow: 2px 2px 0px #fff, 4px 4px 0px #ffccd5;
         }
-
         .subtitle {
             font-size: 0.9rem;
             color: #888;
             margin-bottom: 20px;
         }
-
-        /* 名前入力欄を追加 */
         .name-input-wrapper {
             margin-bottom: 20px;
         }
@@ -65,14 +57,12 @@
             text-align: center;
             font-family: inherit;
         }
-
         .file-input-wrapper {
             position: relative;
             overflow: hidden;
             display: inline-block;
             margin-bottom: 20px;
         }
-
         .btn-upload {
             background: linear-gradient(45deg, #ff6b6b, #ff9ff3);
             color: white;
@@ -83,9 +73,7 @@
             border: none;
             cursor: pointer;
             box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
-            transition: transform 0.2s, box-shadow 0.2s;
         }
-
         input[type=file] {
             position: absolute;
             left: 0;
@@ -94,7 +82,6 @@
             font-size: 100px;
             cursor: pointer;
         }
-
         #preview {
             max-width: 100%;
             border-radius: 15px;
@@ -102,7 +89,6 @@
             display: none;
             border: 3px solid #feca57;
         }
-
         #status {
             margin: 20px 0;
             font-weight: bold;
@@ -111,20 +97,17 @@
             padding: 10px;
             border-radius: 10px;
         }
-
         .result-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 20px;
             display: none;
         }
-
         .result-table th, .result-table td {
             border: 2px solid #ffe0e6;
             padding: 12px;
             text-align: center;
         }
-
         .result-table th {
             background-color: #fff0f2;
             color: #ff6b6b;
@@ -176,7 +159,7 @@
 
         preview.src = URL.createObjectURL(file);
         preview.style.display = 'inline-block';
-        status.innerHTML = '🔮 1. 画像からシフトを計算中... 🔮';
+        status.innerHTML = '🔮 画像から正確に計算中... 🔮';
         status.style.background = '#fff0f2';
         status.style.color = '#ff6b6b';
         resultTable.style.display = 'none';
@@ -186,65 +169,84 @@
         img.src = preview.src;
         img.onload = function() {
             try {
-                // ブラウザ標準のCanvasだけで画像を処理（ブロックされません）
+                // アップロードされた実際の画像サイズをベースに処理
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
-                const width = 600;
-                const height = 1000;
-                canvas.width = width;
-                canvas.height = height;
-                ctx.drawImage(img, 0, 0, width, height);
+                
+                // 元画像の縦横比を完全に保ったまま、基準サイズとして横500幅に統一
+                const baseWidth = 500;
+                const scale = baseWidth / img.width;
+                const baseHeight = img.height * scale;
+                
+                canvas.width = baseWidth;
+                canvas.height = baseHeight;
+                ctx.drawImage(img, 0, 0, baseWidth, baseHeight);
 
-                // ユーザーが入力した名前を取得
                 let detectedName = userNameInput.value.trim() || "小亀 臣仁";
 
-                // マス目の基準位置
-                const gridTop = 95;
-                const gridBottom = 930;
-                const gridLeft = 110;
-                const gridRight = 560;
+                // 【超重要】画像全体の「上部の余白」と「左の余白」をピクセルから自動計算してズレを吸収
+                const imgData = ctx.getImageData(0, 0, baseWidth, baseHeight).data;
+                
+                // 四隅にあるはずの黒い四角（マーカー）の実際の位置を探す
+                let startX = 40;
+                let startY = 20;
+                
+                for(let y = 10; y < 100; y++) {
+                    for(let x = 10; x < 100; x++) {
+                        let idx = (y * baseWidth + x) * 4;
+                        if(imgData[idx] < 60 && imgData[idx+1] < 60 && imgData[idx+2] < 60) {
+                            startX = x;
+                            startY = y;
+                            break;
+                        }
+                    }
+                    if(startY !== 20) break;
+                }
+
+                // 検出された黒い四角からの相対距離で、1日目のマスと時間の位置を完全に固定
+                const gridLeft = startX + 33;   // 9時の線の位置
+                const gridRight = baseWidth - (startX + 27); // 27時の線の位置
+                const gridTop = startY + 54;    // 1日のマスの真ん中
+                const gridBottom = gridTop + 544; // 31日のマスの真ん中
                 
                 const totalDays = 31;
-                const totalHours = 19;
+                const totalHours = 19; // 9時〜27時
                 
                 const cellWidth = (gridRight - gridLeft) / totalHours;
-                const cellHeight = (gridBottom - gridTop) / totalDays;
+                const cellHeight = (gridBottom - gridTop) / (totalDays - 1);
                 
-                const imgData = ctx.getImageData(0, 0, width, height).data;
                 let shiftResults = [];
-
-                // 写真の平均的な明るさを計算して、自動で「黒（文字）」の判定基準を決める
-                let totalBrightness = 0;
-                for (let i = 0; i < imgData.length; i += 40) {
-                    totalBrightness += (imgData[i] + imgData[i+1] + imgData[i+2]) / 3;
-                }
-                let avgBrightness = totalBrightness / (imgData.length / 40);
-                let threshold = avgBrightness - 35; // 平均より明らかに暗い部分を感知
 
                 for (let day = 0; day < totalDays; day++) {
                     let leftHour = -1;
                     let rightHour = -1;
                     
+                    // 各日付の行の、時間ごとの中心をピンポイントにスキャン
+                    let cellY = Math.floor(gridTop + (day * cellHeight));
+                    if (cellY >= baseHeight) break;
+
                     for (let hourIdx = 0; hourIdx < totalHours; hourIdx++) {
                         let cellX = Math.floor(gridLeft + (hourIdx * cellWidth) + (cellWidth / 2));
-                        let cellY = Math.floor(gridTop + (day * cellHeight) + (cellHeight / 2));
+                        if (cellX >= baseWidth) continue;
                         
-                        let pixelIndex = (cellY * width + cellX) * 4;
+                        let pixelIndex = (cellY * baseWidth + cellX) * 4;
                         let r = imgData[pixelIndex];
                         let g = imgData[pixelIndex + 1];
                         let b = imgData[pixelIndex + 2];
                         let brightness = (r + g + b) / 3;
 
-                        if (brightness < threshold) { 
+                        // 平均的な白紙の明るさ(200以上)より明らかに黒い(＜や＞の記号)部分を判定
+                        if (brightness < 140) { 
                             if (leftHour === -1) {
-                                leftHour = 9 + hourIdx; // 9時スタート
+                                leftHour = 9 + hourIdx;
                             } else {
                                 rightHour = 9 + hourIdx;
                             }
                         }
                     }
                     
-                    if (leftHour !== -1 && rightHour !== -1) {
+                    // 左右の記号が見つかった場合のみ登録
+                    if (leftHour !== -1 && rightHour !== -1 && leftHour !== rightHour) {
                         shiftResults.push({
                             date: `${day + 1}日`,
                             name: detectedName,
@@ -259,7 +261,7 @@
                 resultTable.style.display = 'table';
                 
                 if(shiftResults.length === 0) {
-                    resultBody.innerHTML = `<tr><td colspan="3">シフトの記号が見つかりませんでした。もう一度試してみてね！</td></tr>`;
+                    resultBody.innerHTML = `<tr><td colspan="3">シフトの記号（＜ ＞）が正しい位置で見つかりませんでした。もう一度試してみてね！</td></tr>`;
                 } else {
                     shiftResults.forEach(res => {
                         const row = `<tr class="animate__animated animate__fadeInUp">
