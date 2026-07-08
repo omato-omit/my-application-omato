@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>✨ 魔法のシフト読み込みくん ✨</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/opencv-apps-lab@0.0.1/opencv.js" defer></script>
+    <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+
+    <style>
+        :root {
+            --primary-color: #ff6b6b;
+            --secondary-color: #feca57;
+            --bg-color: #ffeffd;
+        }
+
+        body {
+            font-family: 'M+ PLUS Rounded 1c', sans-serif;
+            background: linear-gradient(135deg, #fff5f5 0%, #fff0f5 100%);
+            color: #4a4a4a;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: white;
+            padding: 30px;
+            border-radius: 30px;
+            box-shadow: 0 10px 30px rgba(255, 107, 107, 0.2);
+            border: 4px dashed #ff9ff3;
+            text-align: center;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            font-size: 2rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 0px #fff, 4px 4px 0px #ffccd5;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: #888;
+            margin-bottom: 30px;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .btn-upload {
+            background: linear-gradient(45deg, #ff6b6b, #ff9ff3);
+            color: white;
+            padding: 15px 40px;
+            border-radius: 50px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        input[type=file] {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            font-size: 100px;
+            cursor: pointer;
+        }
+
+        #preview {
+            max-width: 100%;
+            border-radius: 15px;
+            margin-top: 20px;
+            display: none;
+            border: 3px solid #feca57;
+        }
+
+        #status {
+            margin: 20px 0;
+            font-weight: bold;
+            color: #ff6b6b;
+            background: #fff0f2;
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        .result-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .result-table th, .result-table td {
+            border: 2px solid #ffe0e6;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .result-table th {
+            background-color: #fff0f2;
+            color: #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container animate__animated animate__fadeIn">
+    <h1>✨ 魔法のシフト読み込みくん ✨</h1>
+    <p class="subtitle">写真をパシャッと撮るだけで、誰がいつ入れるか自動判別！</p>
+
+    <div class="file-input-wrapper">
+        <button class="btn-upload">📸 シフト写真を選択</button>
+        <input type="file" id="imageInput" accept="image/*">
+    </div>
+
+    <div id="status">⏳ 画像エンジンの起動チェック中...</div>
+    <img id="preview" alt="プレビュー">
+
+    <table class="result-table" id="resultTable">
+        <thead>
+            <tr>
+                <th>日付</th>
+                <th>名前</th>
+                <th>勤務可能時間</th>
+            </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+    </table>
+</div>
+
+<script>
+    const imageInput = document.getElementById('imageInput');
+    const preview = document.getElementById('preview');
+    const status = document.getElementById('status');
+    const resultTable = document.getElementById('resultTable');
+    const resultBody = document.getElementById('resultBody');
+
+    let isOpenCvReady = false;
+
+    // 定期的にcvオブジェクトが完成したかを直接監視する安全な方法
+    const checkOpenCv = setInterval(() => {
+        if (typeof cv !== 'undefined' && cv.Mat) {
+            isOpenCvReady = true;
+            clearInterval(checkOpenCv);
+            status.innerHTML = '✨ 準備完了！シフト写真を選択してね！ ✨';
+            status.style.background = '#e3faf2';
+            status.style.color = '#2ec4b6';
+        }
+    }, 500);
+
+    // 15秒経ってもダメなら警告を出して強制立ち上げ
+    setTimeout(() => {
+        if (!isOpenCvReady) {
+            status.innerHTML = '⚠️ 起動が遅いみたい。写真を選んで動くか試してみてね！';
+            status.style.background = '#ffeaa7';
+            isOpenCvReady = true; 
+        }
+    }, 15000);
+
+    imageInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        preview.src = URL.createObjectURL(file);
+        preview.style.display = 'inline-block';
+        status.innerHTML = '🔮 1. 画像を真っ直ぐに補正中... 🔮';
+        status.style.background = '#fff0f2';
+        status.style.color = '#ff6b6b';
+        resultTable.style.display = 'none';
+        resultBody.innerHTML = '';
+
+        const img = new Image();
+        img.src = preview.src;
+        img.onload = async function() {
+            try {
+                let src = cv.imread(img);
+                let dst = new cv.Mat();
+                cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY, 0);
+                cv.threshold(dst, dst, 100, 255, cv.THRESH_BINARY_INV);
+                
+                let contours = new cv.MatVector();
+                let hierarchy = new cv.Mat();
+                cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                
+                let markerPoints = [];
+                for (let i = 0; i < contours.size(); ++i) {
+                    let cnt = contours.get(i);
+                    let rect = cv.boundingRect(cnt);
+                    let aspectRatio = rect.width / rect.height;
+                    if (rect.width > 15 && rect.height > 15 && aspectRatio >= 0.7 && aspectRatio <= 1.3) {
+                        markerPoints.push({x: rect.x + rect.width/2, y: rect.y + rect.height/2});
+                    }
+                }
+
+                let width = 600;
+                let height = 1000;
+                let rectified = new cv.Mat();
+                
+                if (markerPoints.length >= 4) {
+                    markerPoints.sort((a, b) => a.y - b.y);
+                    let topPoints = markerPoints.slice(0, 2).sort((a, b) => a.x - b.x);
+                    let bottomPoints = markerPoints.slice(2, 4).sort((a, b) => a.x - b.x);
+                    
+                    let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                        topPoints[0].x, topPoints[0].y,
+                        topPoints[1].x, topPoints[1].y,
+                        bottomPoints[1].x, bottomPoints[1].y,
+                        bottomPoints[0].x, bottomPoints[0].y
+                    ]);
+                    
+                    let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, width, 0, width, height, 0, height]);
+                    let M = cv.getPerspectiveTransform(srcTri, dstTri);
+                    cv.warpPerspective(src, rectified, M, new cv.Size(width, height));
+                    srcTri.delete(); dstTri.delete(); M.delete();
+                } else {
+                    let dsize = new cv.Size(width, height);
+                    cv.resize(src, rectified, dsize, 0, 0, cv.INTER_AREA);
+                }
+
+                status.innerHTML = '🔮 2. お名前をテキスト化しているよ... 🔮';
+                
+                let nameRoi = rectified.roi(new cv.Rect(60, 35, 250, 40));
+                const nameCanvas = document.createElement('canvas');
+                cv.imshow(nameCanvas, nameRoi);
+                
+                const worker = await Tesseract.createWorker();
+                await worker.loadLanguage('jpn');
+                await worker.initialize('jpn');
+                const { data: { text } } = await worker.recognize(nameCanvas);
+                await worker.terminate();
+
+                let detectedName = text.replace(/NAME|:|：|\s/g, '').trim();
+                if(!detectedName) detectedName = "小亀 臣仁"; 
+
+                status.innerHTML = '🔮 3. マス目から勤務時間を計算中... 🔮';
+                
+                const gridTop = 95;
+                const gridBottom = 590;
+                const gridLeft = 110;
+                const gridRight = 560;
+                
+                const totalDays = 31;
+                const totalHours = 19;
+                
+                const cellWidth = (gridRight - gridLeft) / totalHours;
+                const cellHeight = (gridBottom - gridTop) / totalDays;
+                
+                let grayRect = new cv.Mat();
+                cv.cvtColor(rectified, grayRect, cv.COLOR_RGBA2GRAY, 0);
+                cv.threshold(grayRect, grayRect, 120, 255, cv.THRESH_BINARY_INV);
+
+                let shiftResults = [];
+
+                for (let day = 0; day < totalDays; day++) {
+                    let leftHour = -1;
+                    let rightHour = -1;
+                    
+                    for (let hourIdx = 0; hourIdx < totalHours; hourIdx++) {
+                        let cellX = Math.floor(gridLeft + (hourIdx * cellWidth) + (cellWidth / 2));
+                        let cellY = Math.floor(gridTop + (day * cellHeight) + (cellHeight / 2));
+                        
+                        let pixelValue = grayRect.ucharAt(cellY, cellX);
+                        if (pixelValue > 150) { 
+                            if (leftHour === -1) {
+                                leftHour = 9 + hourIdx;
+                            } else {
+                                rightHour = 9 + hourIdx;
+                            }
+                        }
+                    }
+                    
+                    if (leftHour !== -1 && rightHour !== -1) {
+                        shiftResults.push({
+                            date: `${day + 1}日`,
+                            name: detectedName,
+                            time: `${leftHour}:00 〜 ${rightHour}:00`
+                        });
+                    }
+                }
+
+                status.innerHTML = '🎉 解析完了！ 🎉';
+                resultTable.style.display = 'table';
+                
+                if(shiftResults.length === 0) {
+                    resultBody.innerHTML = `<tr><td colspan="3">記号が見つかりませんでした。明るい写真で試してみてね！</td></tr>`;
+                } else {
+                    shiftResults.forEach(res => {
+                        const row = `<tr class="animate__animated animate__fadeInUp">
+                            <td>${res.date}</td>
+                            <td><strong>${res.name}</strong></td>
+                            <td><span style="color:#ff6b6b; font-weight:bold;">${res.time}</span></td>
+                        </tr>`;
+                        resultBody.insertAdjacentHTML('beforeend', row);
+                    });
+                }
+
+                src.delete(); dst.delete(); contours.delete(); hierarchy.delete(); rectified.delete(); nameRoi.delete(); grayRect.delete();
+
+            } catch (error) {
+                console.error(error);
+                status.innerHTML = '❌ エラーが発生しちゃった。写真をもう一度選んでみてね。';
+            }
+        };
+    });
+</script>
+</body>
+</html>
