@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>✨ 魔法のシフト読み込みくん ✨</title>
     
-    <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
-    
     <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
 
@@ -50,7 +48,22 @@
         .subtitle {
             font-size: 0.9rem;
             color: #888;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+        }
+
+        /* 名前入力欄を追加 */
+        .name-input-wrapper {
+            margin-bottom: 20px;
+        }
+        .name-input-wrapper input {
+            padding: 10px 15px;
+            font-size: 1rem;
+            border: 2px solid #ffccd5;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 300px;
+            text-align: center;
+            font-family: inherit;
         }
 
         .file-input-wrapper {
@@ -124,6 +137,11 @@
     <h1>✨ 魔法のシフト読み込みくん ✨</h1>
     <p class="subtitle">写真をパシャッと撮るだけで、誰がいつ入れるか自動判別！</p>
 
+    <div class="name-input-wrapper">
+        <label for="userName" style="display:block; margin-bottom:5px; font-size:0.9rem; color:#ff6b6b;">👤 読み取る人の名前</label>
+        <input type="text" id="userName" value="小亀 臣仁" placeholder="名前を入力してね">
+    </div>
+
     <div class="file-input-wrapper">
         <button class="btn-upload">📸 シフト写真を選択</button>
         <input type="file" id="imageInput" accept="image/*">
@@ -150,6 +168,7 @@
     const status = document.getElementById('status');
     const resultTable = document.getElementById('resultTable');
     const resultBody = document.getElementById('resultBody');
+    const userNameInput = document.getElementById('userName');
 
     imageInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -157,7 +176,7 @@
 
         preview.src = URL.createObjectURL(file);
         preview.style.display = 'inline-block';
-        status.innerHTML = '🔮 1. 画像を解析用にセット中... 🔮';
+        status.innerHTML = '🔮 1. 画像からシフトを計算中... 🔮';
         status.style.background = '#fff0f2';
         status.style.color = '#ff6b6b';
         resultTable.style.display = 'none';
@@ -165,9 +184,9 @@
 
         const img = new Image();
         img.src = preview.src;
-        img.onload = async function() {
+        img.onload = function() {
             try {
-                // ブラウザ標準のCanvasを使って画像をリサイズ処理
+                // ブラウザ標準のCanvasだけで画像を処理（ブロックされません）
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 const width = 600;
@@ -176,27 +195,10 @@
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
 
-                status.innerHTML = '🔮 2. お名前をテキスト化しているよ... 🔮';
-                
-                // 名前エリアの切り出し
-                const nameCanvas = document.createElement('canvas');
-                nameCanvas.width = 250;
-                nameCanvas.height = 40;
-                const nameCtx = nameCanvas.getContext('2d');
-                nameCtx.drawImage(canvas, 60, 35, 250, 40, 0, 0, 250, 40);
-                
-                const worker = await Tesseract.createWorker();
-                await worker.loadLanguage('jpn');
-                await worker.initialize('jpn');
-                const { data: { text } } = await worker.recognize(nameCanvas);
-                await worker.terminate();
+                // ユーザーが入力した名前を取得
+                let detectedName = userNameInput.value.trim() || "小亀 臣仁";
 
-                let detectedName = text.replace(/NAME|:|：|\s/g, '').trim();
-                if(!detectedName) detectedName = "小亀 臣仁"; 
-
-                status.innerHTML = '🔮 3. マス目から勤務時間を計算中... 🔮';
-                
-                // 枠線の基準位置
+                // マス目の基準位置
                 const gridTop = 95;
                 const gridBottom = 930;
                 const gridLeft = 110;
@@ -208,9 +210,16 @@
                 const cellWidth = (gridRight - gridLeft) / totalHours;
                 const cellHeight = (gridBottom - gridTop) / totalDays;
                 
-                // Canvasのピクセルデータを直接取得（OpenCVの代わりに色データを調べる）
                 const imgData = ctx.getImageData(0, 0, width, height).data;
                 let shiftResults = [];
+
+                // 写真の平均的な明るさを計算して、自動で「黒（文字）」の判定基準を決める
+                let totalBrightness = 0;
+                for (let i = 0; i < imgData.length; i += 40) {
+                    totalBrightness += (imgData[i] + imgData[i+1] + imgData[i+2]) / 3;
+                }
+                let avgBrightness = totalBrightness / (imgData.length / 40);
+                let threshold = avgBrightness - 35; // 平均より明らかに暗い部分を感知
 
                 for (let day = 0; day < totalDays; day++) {
                     let leftHour = -1;
@@ -220,17 +229,15 @@
                         let cellX = Math.floor(gridLeft + (hourIdx * cellWidth) + (cellWidth / 2));
                         let cellY = Math.floor(gridTop + (day * cellHeight) + (cellHeight / 2));
                         
-                        // ピクセルのRGB値を取得して擬似的に黒さを判定
                         let pixelIndex = (cellY * width + cellX) * 4;
                         let r = imgData[pixelIndex];
                         let g = imgData[pixelIndex + 1];
                         let b = imgData[pixelIndex + 2];
                         let brightness = (r + g + b) / 3;
 
-                        // 文字や記号（黒っぽい部分）があるか判定
-                        if (brightness < 130) { 
+                        if (brightness < threshold) { 
                             if (leftHour === -1) {
-                                leftHour = 9 + hourIdx;
+                                leftHour = 9 + hourIdx; // 9時スタート
                             } else {
                                 rightHour = 9 + hourIdx;
                             }
@@ -252,7 +259,7 @@
                 resultTable.style.display = 'table';
                 
                 if(shiftResults.length === 0) {
-                    resultBody.innerHTML = `<tr><td colspan="3">シフトの記号（＜ ＞）が見つかりませんでした。もう一度試してみてね！</td></tr>`;
+                    resultBody.innerHTML = `<tr><td colspan="3">シフトの記号が見つかりませんでした。もう一度試してみてね！</td></tr>`;
                 } else {
                     shiftResults.forEach(res => {
                         const row = `<tr class="animate__animated animate__fadeInUp">
