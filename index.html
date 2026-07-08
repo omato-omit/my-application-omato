@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>✨ 魔法のシフト読み込みくん ✨</title>
     
-    <script src="https://docs.opencv.org/4.5.5/opencv.js" type="text/javascript"></script>
     <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700&display=swap" rel="stylesheet">
@@ -94,8 +93,8 @@
         #status {
             margin: 20px 0;
             font-weight: bold;
-            color: #ff6b6b;
-            background: #fff0f2;
+            color: #2ec4b6;
+            background: #e3faf2;
             padding: 10px;
             border-radius: 10px;
         }
@@ -130,7 +129,7 @@
         <input type="file" id="imageInput" accept="image/*">
     </div>
 
-    <div id="status">⏳ 画像エンジンの起動チェック中...</div>
+    <div id="status">✨ 準備完了！シフト写真を選択してね！ ✨</div>
     <img id="preview" alt="プレビュー">
 
     <table class="result-table" id="resultTable">
@@ -152,36 +151,13 @@
     const resultTable = document.getElementById('resultTable');
     const resultBody = document.getElementById('resultBody');
 
-    let isOpenCvReady = false;
-
-    // 定期的にcvオブジェクトの完成をチェックする安全な方法
-    const checkOpenCv = setInterval(() => {
-        if (typeof cv !== 'undefined' && cv.Mat) {
-            isOpenCvReady = true;
-            clearInterval(checkOpenCv);
-            status.innerHTML = '✨ 準備完了！シフト写真を選択してね！ ✨';
-            status.style.background = '#e3faf2';
-            status.style.color = '#2ec4b6';
-        }
-    }, 500);
-
-    // 15秒経ってもダメなら警告を出して強制立ち上げ
-    setTimeout(() => {
-        if (!isOpenCvReady) {
-            status.innerHTML = '✨ 準備完了！シフト写真を選択してね！ ✨';
-            status.style.background = '#e3faf2';
-            status.style.color = '#2ec4b6';
-            isOpenCvReady = true; 
-        }
-    }, 15000);
-
     imageInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
         preview.src = URL.createObjectURL(file);
         preview.style.display = 'inline-block';
-        status.innerHTML = '🔮 1. 画像サイズを調整中... 🔮';
+        status.innerHTML = '🔮 1. 画像を解析用にセット中... 🔮';
         status.style.background = '#fff0f2';
         status.style.color = '#ff6b6b';
         resultTable.style.display = 'none';
@@ -191,24 +167,23 @@
         img.src = preview.src;
         img.onload = async function() {
             try {
-                if (typeof cv === 'undefined' || !cv.Mat) {
-                    status.innerHTML = '⚠️ エンジンの準備が間に合いませんでした。もう一度写真を選び直してみてね！';
-                    return;
-                }
-
-                let src = cv.imread(img);
-                
-                let width = 600;
-                let height = 1000;
-                let rectified = new cv.Mat();
-                let dsize = new cv.Size(width, height);
-                cv.resize(src, rectified, dsize, 0, 0, cv.INTER_AREA);
+                // ブラウザ標準のCanvasを使って画像をリサイズ処理
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const width = 600;
+                const height = 1000;
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
 
                 status.innerHTML = '🔮 2. お名前をテキスト化しているよ... 🔮';
                 
-                let nameRoi = rectified.roi(new cv.Rect(60, 35, 250, 40));
+                // 名前エリアの切り出し
                 const nameCanvas = document.createElement('canvas');
-                cv.imshow(nameCanvas, nameRoi);
+                nameCanvas.width = 250;
+                nameCanvas.height = 40;
+                const nameCtx = nameCanvas.getContext('2d');
+                nameCtx.drawImage(canvas, 60, 35, 250, 40, 0, 0, 250, 40);
                 
                 const worker = await Tesseract.createWorker();
                 await worker.loadLanguage('jpn');
@@ -221,6 +196,7 @@
 
                 status.innerHTML = '🔮 3. マス目から勤務時間を計算中... 🔮';
                 
+                // 枠線の基準位置
                 const gridTop = 95;
                 const gridBottom = 930;
                 const gridLeft = 110;
@@ -232,10 +208,8 @@
                 const cellWidth = (gridRight - gridLeft) / totalHours;
                 const cellHeight = (gridBottom - gridTop) / totalDays;
                 
-                let grayRect = new cv.Mat();
-                cv.cvtColor(rectified, grayRect, cv.COLOR_RGBA2GRAY, 0);
-                cv.threshold(grayRect, grayRect, 120, 255, cv.THRESH_BINARY_INV);
-
+                // Canvasのピクセルデータを直接取得（OpenCVの代わりに色データを調べる）
+                const imgData = ctx.getImageData(0, 0, width, height).data;
                 let shiftResults = [];
 
                 for (let day = 0; day < totalDays; day++) {
@@ -246,10 +220,15 @@
                         let cellX = Math.floor(gridLeft + (hourIdx * cellWidth) + (cellWidth / 2));
                         let cellY = Math.floor(gridTop + (day * cellHeight) + (cellHeight / 2));
                         
-                        if (cellY >= grayRect.rows || cellX >= grayRect.cols) continue;
+                        // ピクセルのRGB値を取得して擬似的に黒さを判定
+                        let pixelIndex = (cellY * width + cellX) * 4;
+                        let r = imgData[pixelIndex];
+                        let g = imgData[pixelIndex + 1];
+                        let b = imgData[pixelIndex + 2];
+                        let brightness = (r + g + b) / 3;
 
-                        let pixelValue = grayRect.ucharAt(cellY, cellX);
-                        if (pixelValue > 100) { 
+                        // 文字や記号（黒っぽい部分）があるか判定
+                        if (brightness < 130) { 
                             if (leftHour === -1) {
                                 leftHour = 9 + hourIdx;
                             } else {
@@ -268,6 +247,8 @@
                 }
 
                 status.innerHTML = '🎉 解析完了！ 🎉';
+                status.style.background = '#e3faf2';
+                status.style.color = '#2ec4b6';
                 resultTable.style.display = 'table';
                 
                 if(shiftResults.length === 0) {
@@ -283,11 +264,11 @@
                     });
                 }
 
-                src.delete(); rectified.delete(); nameRoi.delete(); grayRect.delete();
-
             } catch (error) {
                 console.error(error);
                 status.innerHTML = '❌ エラーが発生しちゃった。写真をもう一度選んでみてね。';
+                status.style.background = '#fff0f2';
+                status.style.color = '#ff6b6b';
             }
         };
     });
