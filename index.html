@@ -169,11 +169,10 @@
         img.src = preview.src;
         img.onload = function() {
             try {
-                // アップロードされた実際の画像サイズをベースに処理
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
-                // 元画像の縦横比を完全に保ったまま、基準サイズとして横500幅に統一
+                // 横幅を500に固定して縦横比を維持
                 const baseWidth = 500;
                 const scale = baseWidth / img.width;
                 const baseHeight = img.height * scale;
@@ -183,31 +182,33 @@
                 ctx.drawImage(img, 0, 0, baseWidth, baseHeight);
 
                 let detectedName = userNameInput.value.trim() || "小亀 臣仁";
-
-                // 【超重要】画像全体の「上部の余白」と「左の余白」をピクセルから自動計算してズレを吸収
                 const imgData = ctx.getImageData(0, 0, baseWidth, baseHeight).data;
                 
-                // 四隅にあるはずの黒い四角（マーカー）の実際の位置を探す
-                let startX = 40;
-                let startY = 20;
-                
-                for(let y = 10; y < 100; y++) {
-                    for(let x = 10; x < 100; x++) {
+                // 【タイトル文字対策】右下の黒いマーカー（■）を画像の下半分から逆算して探す
+                let markerX = baseWidth - 45;
+                let markerY = baseHeight - 45;
+                let found = false;
+
+                // 画像の右下エリア（下から150px、右から100pxの範囲）だけをピンポイントでスキャン
+                for(let y = Math.floor(baseHeight - 150); y < baseHeight - 10; y++) {
+                    for(let x = baseWidth - 100; x < baseWidth - 10; x++) {
                         let idx = (y * baseWidth + x) * 4;
-                        if(imgData[idx] < 60 && imgData[idx+1] < 60 && imgData[idx+2] < 60) {
-                            startX = x;
-                            startY = y;
+                        // はっきりとした黒を探す
+                        if(imgData[idx] < 50 && imgData[idx+1] < 50 && imgData[idx+2] < 50) {
+                            markerX = x;
+                            markerY = y;
+                            found = true;
                             break;
                         }
                     }
-                    if(startY !== 20) break;
+                    if(found) break;
                 }
 
-                // 検出された黒い四角からの相対距離で、1日目のマスと時間の位置を完全に固定
-                const gridLeft = startX + 33;   // 9時の線の位置
-                const gridRight = baseWidth - (startX + 27); // 27時の線の位置
-                const gridTop = startY + 54;    // 1日のマスの真ん中
-                const gridBottom = gridTop + 544; // 31日のマスの真ん中
+                // 確定した右下マーカー（■）の位置から、表の正確な4辺を逆算（ミリ単位で修正）
+                const gridRight = markerX - 11;    // 27時の線の位置
+                const gridLeft = gridRight - 355; // 9時の線の位置
+                const gridBottom = markerY - 33;  // 31日の行の中心
+                const gridTop = gridBottom - 544; // 1日の行の中心
                 
                 const totalDays = 31;
                 const totalHours = 19; // 9時〜27時
@@ -221,13 +222,12 @@
                     let leftHour = -1;
                     let rightHour = -1;
                     
-                    // 各日付の行の、時間ごとの中心をピンポイントにスキャン
                     let cellY = Math.floor(gridTop + (day * cellHeight));
-                    if (cellY >= baseHeight) break;
+                    if (cellY >= baseHeight || cellY < 0) continue;
 
                     for (let hourIdx = 0; hourIdx < totalHours; hourIdx++) {
                         let cellX = Math.floor(gridLeft + (hourIdx * cellWidth) + (cellWidth / 2));
-                        if (cellX >= baseWidth) continue;
+                        if (cellX >= baseWidth || cellX < 0) continue;
                         
                         let pixelIndex = (cellY * baseWidth + cellX) * 4;
                         let r = imgData[pixelIndex];
@@ -235,7 +235,7 @@
                         let b = imgData[pixelIndex + 2];
                         let brightness = (r + g + b) / 3;
 
-                        // 平均的な白紙の明るさ(200以上)より明らかに黒い(＜や＞の記号)部分を判定
+                        // 記号（＜ ＞）の黒さを感知
                         if (brightness < 140) { 
                             if (leftHour === -1) {
                                 leftHour = 9 + hourIdx;
@@ -245,7 +245,6 @@
                         }
                     }
                     
-                    // 左右の記号が見つかった場合のみ登録
                     if (leftHour !== -1 && rightHour !== -1 && leftHour !== rightHour) {
                         shiftResults.push({
                             date: `${day + 1}日`,
@@ -261,7 +260,7 @@
                 resultTable.style.display = 'table';
                 
                 if(shiftResults.length === 0) {
-                    resultBody.innerHTML = `<tr><td colspan="3">シフトの記号（＜ ＞）が正しい位置で見つかりませんでした。もう一度試してみてね！</td></tr>`;
+                    resultBody.innerHTML = `<tr><td colspan="3">シフトの記号（＜ ＞）が見つかりませんでした。もう一度試してみてね！</td></tr>`;
                 } else {
                     shiftResults.forEach(res => {
                         const row = `<tr class="animate__animated animate__fadeInUp">
